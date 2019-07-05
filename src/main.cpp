@@ -11,19 +11,19 @@
 #include <geometry_msgs/Twist.h>
 
 #define PORTUSB "/dev/ttyUSB0"
-//#define PORTUSB "/dev/AVR"
+//#define PORTUSB "/dev/AVRBLUE"
 #define SPEEDSERIAL B115200
 #define STARTBYTE 0xAA
 
 using namespace ros;
 
 
-
-
-
+Publisher SACP;
+Subscriber sub;
 
 extern int USBDiscr;
 extern char* port;
+
 
 int initSerial();
 int serialComun(double speed, double vel);
@@ -32,11 +32,14 @@ int readSerial(uint8_t *buf, size_t ln);
 uint8_t readSerial();
 void send(const geometry_msgs::Twist&);
 void connectDevice();
+void speedControl();
 
 
 
 int USBDiscr = 0;
 char* port = "/dev/AVRBLUE";
+geometry_msgs::Twist SendM;
+
 
 //Структура для отправляемых сообщений
 union packetMove{
@@ -73,8 +76,11 @@ int main(int argc, char* argv[])
 {
     connectDevice();
     init(argc, argv, "Ur_hard_motor");
+    init(argc, argv, "SACP");
     NodeHandle m;
-    Subscriber sub = m.subscribe("/cmd_vel",1000, send);
+    SACP = m.advertise<geometry_msgs::Twist>("SACP", 1000);
+    serialComun(0,0);
+    sub = m.subscribe("/unior2/twist",1000, send);
     spin();
     return 0;
 }
@@ -98,6 +104,10 @@ int initSerial(){
 }
 
 int serialComun(double speed,double vel){
+    if(access(port,0)){
+                close(USBDiscr);
+                connectDevice();
+            }
     uint8_t buf[2]={0,0};;
     packetSend.MSG.Start[0]=STARTBYTE;
     packetSend.MSG.Start[1]=STARTBYTE;
@@ -105,15 +115,15 @@ int serialComun(double speed,double vel){
     packetSend.MSG.speed=int16_t(speed*250);
     packetSend.MSG.vel=int16_t(vel*250);
     packetSend.MSG.CRC=hashSumm(packetSend.buffer,4);
-    ROS_INFO("Forward_1 [%d], angle_1 [%d]",int16_t(packetSend.MSG.speed),int16_t(packetSend.MSG.vel));
+    ROS_INFO("Forward_1 [%d], angle_1 [%d]",packetSend.MSG.speed,packetSend.MSG.vel);
     write(USBDiscr,packetSend.buffer,8);
     tcflush(USBDiscr, TCIOFLUSH);
     readSerial(buf,2);
     if(buf[0]==0xAA && buf[1]==0xAA){
         MSGIN.len=readSerial();
         readSerial(MSGIN.MSG,size_t(MSGIN.len));
-        for(int k = 0; k < MSGIN.len; k++){
-            ROS_INFO("Byte %d [%d]",k ,MSGIN.MSG[k]);
+        for(int k = 0; k < MSGIN.len/2; k++){
+            ROS_INFO("Byte %d [%d]",k ,int16_t(MSGIN.MSG[k*2]|(MSGIN.MSG[k*2+1]<<8)));
         }
         ROS_INFO("Length: [%d]", MSGIN.len);
         MSGIN.CRC=readSerial();
@@ -121,6 +131,7 @@ int serialComun(double speed,double vel){
         MSGIN.verifine=readSerial();
     }
     else return -1;
+    speedControl();
     return 0;
 }
 
@@ -162,3 +173,15 @@ void connectDevice(){
     }
     ROS_INFO("Succes connect device");
 }
+
+void speedControl(){
+        ROS_INFO("SpeedM: %d AngularM: %d", int16_t(MSGIN.MSG[0]|(MSGIN.MSG[1]<<8)), int16_t(MSGIN.MSG[2]|(MSGIN.MSG[3]<<8)));
+        SendM.angular.z = int16_t(MSGIN.MSG[2]|(MSGIN.MSG[3]<<8))/10;
+        SendM.linear.x = int16_t(MSGIN.MSG[0]|(MSGIN.MSG[1]<<8))/10;
+        SACP.publish(SendM);
+        if(int16_t(MSGIN.MSG[8]|(MSGIN.MSG[8+1]<<8))>1500){
+            usleep(35000);
+            serialComun(0,0);
+        }
+        //usleep(10000);
+    }
