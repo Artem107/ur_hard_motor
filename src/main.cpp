@@ -36,7 +36,7 @@ void connectDevice();
 
 
 int USBDiscr = 0;
-char* port = "/dev/ttyUSB0";
+char* port = "/dev/AVRBLUE";
 
 //Структура для отправляемых сообщений
 union packetMove{
