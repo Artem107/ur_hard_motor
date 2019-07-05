@@ -1,0 +1,6 @@
+<launch>
+
+    <arg name="port" default="/dev/AVR" />
+    <node pkg="ur_hard_motor" name="driver_motor" type="motor_node"/>
+
+</launch>
